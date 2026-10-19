@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 
 from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
     QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar,
@@ -18,7 +19,14 @@ from PySide6.QtWidgets import (
 
 from . import __app_name__, __version__
 from .engine import VIDEO_EXTENSIONS, Cancelled, MergeError, MergeRequest, merge
+from .resources import find_bundled
 from .style import STYLESHEET
+
+
+def app_icon() -> QIcon:
+    """Icône de l'application (embarquée si disponible)."""
+    p = find_bundled("icon.png") or find_bundled("docs/icon.png")
+    return QIcon(str(p)) if p else QIcon()
 from .vcsteg_manager import VcstegError, download_script, find_valid_script
 
 
@@ -87,6 +95,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"{__app_name__} — fusion vidéo / conteneur VeraCrypt")
+        self.setWindowIcon(app_icon())
         self.setMinimumSize(720, 640)
         self._worker: Worker | None = None
         self._dl: DownloadWorker | None = None
@@ -306,6 +315,7 @@ class MainWindow(QMainWindow):
 def main() -> int:
     app = QApplication.instance() or QApplication([])
     app.setApplicationName(__app_name__)
+    app.setWindowIcon(app_icon())
     app.setStyleSheet(STYLESHEET)
     win = MainWindow()
     win.show()
