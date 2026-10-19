@@ -45,9 +45,12 @@ jobs:
             Write-Error "vcsteg3.py absent du depot. Ajoutez-le a la racine."
             exit 1
           }
+          $text = [System.IO.File]::ReadAllText("vcsteg3.py")
+          $text = $text -replace "`r`n", "`n" -replace "`r", "`n"
+          [System.IO.File]::WriteAllText("$PWD\vcsteg3.py", $text, (New-Object System.Text.UTF8Encoding($false)))
           $hash = (Get-FileHash vcsteg3.py -Algorithm SHA256).Hash.ToLower()
           if ($hash -ne $env:VCSTEG3_SHA256) {
-            Write-Error "Empreinte vcsteg3.py incorrecte : $hash"
+            Write-Error "Empreinte vcsteg3.py incorrecte apres normalisation : $hash"
             exit 1
           }
           Write-Host "vcsteg3.py verifie."
@@ -96,6 +99,7 @@ jobs:
       - name: Verifier vcsteg3.py (fourni dans le depot)
         run: |
           test -f vcsteg3.py || { echo "vcsteg3.py absent du depot. Ajoutez-le a la racine."; exit 1; }
+          tr -d '\r' < vcsteg3.py > vcsteg3.lf && mv vcsteg3.lf vcsteg3.py
           echo "${VCSTEG3_SHA256}  vcsteg3.py" | sha256sum -c -
 
       - name: Construire le binaire autonome
