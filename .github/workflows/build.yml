@@ -1,0 +1,162 @@
+name: Build binaries
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  # Empreinte officielle de vcsteg3.py (dossier Contributions de VeraCrypt).
+  VCSTEG3_SHA256: c9aaad401b601be7415a973978b6da2fc31f26e58bcf5d4890a3cc1912d86843
+  FFMPEG_WIN: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip
+  FFMPEG_LINUX: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz
+  VCSTEG3_URL: https://downloads.sourceforge.net/project/veracrypt/Contributions/vcsteg3.py
+
+jobs:
+  # ---------------------------------------------------------------- Windows
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer les dépendances Python
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Récupérer ffmpeg et ffprobe (embarqués)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri $env:FFMPEG_WIN -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_dl
+          $bin = Get-ChildItem -Path ffmpeg_dl -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          Copy-Item $bin.FullName ffmpeg.exe
+          $probe = Get-ChildItem -Path ffmpeg_dl -Recurse -Filter ffprobe.exe | Select-Object -First 1
+          Copy-Item $probe.FullName ffprobe.exe
+
+      - name: Récupérer vcsteg3.py et vérifier l'empreinte
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri $env:VCSTEG3_URL -OutFile vcsteg3.py
+          $hash = (Get-FileHash vcsteg3.py -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:VCSTEG3_SHA256) {
+            Write-Error "Empreinte vcsteg3.py incorrecte : $hash"
+            exit 1
+          }
+          Write-Host "vcsteg3.py vérifié."
+
+      - name: Construire l'exécutable autonome
+        run: >
+          pyinstaller --onefile --windowed --name VideoVault
+          --icon docs/icon.ico
+          --collect-all PySide6
+          --add-binary "ffmpeg.exe;."
+          --add-binary "ffprobe.exe;."
+          --add-data "vcsteg3.py;."
+          --add-data "docs/icon.png;docs"
+          main.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VideoVault-windows
+          path: dist/VideoVault.exe
+
+  # ------------------------------------------------------------------ Linux
+  build-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer les dépendances
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+          sudo apt-get update
+          sudo apt-get install -y libfuse2 file wget xz-utils
+
+      - name: Récupérer ffmpeg et ffprobe (embarqués)
+        run: |
+          set -e
+          wget -q "$FFMPEG_LINUX" -O ffmpeg.tar.xz
+          mkdir ffmpeg_dl
+          tar -xf ffmpeg.tar.xz -C ffmpeg_dl
+          cp "$(find ffmpeg_dl -name ffmpeg -type f | head -1)" ffmpeg
+          cp "$(find ffmpeg_dl -name ffprobe -type f | head -1)" ffprobe
+          chmod +x ffmpeg ffprobe
+
+      - name: Récupérer vcsteg3.py et vérifier l'empreinte
+        run: |
+          set -e
+          curl -fsSL "$VCSTEG3_URL" -o vcsteg3.py
+          echo "${VCSTEG3_SHA256}  vcsteg3.py" | sha256sum -c -
+
+      - name: Construire le binaire autonome
+        run: >
+          pyinstaller --onefile --name VideoVault
+          --collect-all PySide6
+          --add-binary "ffmpeg:."
+          --add-binary "ffprobe:."
+          --add-data "vcsteg3.py:."
+          --add-data "docs/icon.png:docs"
+          main.py
+
+      - name: Empaqueter en AppImage
+        run: |
+          set -e
+          APPDIR=VideoVault.AppDir
+          mkdir -p $APPDIR/usr/bin
+          cp dist/VideoVault $APPDIR/usr/bin/VideoVault
+          cat > $APPDIR/videovault.desktop <<'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=VideoVault
+          Exec=VideoVault
+          Icon=videovault
+          Categories=Utility;Security;
+          Terminal=false
+          EOF
+          if [ -f docs/icon.png ]; then
+            cp docs/icon.png $APPDIR/videovault.png
+          else
+            printf '\x89PNG\r\n\x1a\n' > $APPDIR/videovault.png
+          fi
+          cat > $APPDIR/AppRun <<'EOF'
+          #!/bin/sh
+          HERE=$(dirname "$(readlink -f "$0")")
+          exec "$HERE/usr/bin/VideoVault" "$@"
+          EOF
+          chmod +x $APPDIR/AppRun
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          ./appimagetool-x86_64.AppImage --appimage-extract >/dev/null
+          ARCH=x86_64 ./squashfs-root/AppRun $APPDIR VideoVault-x86_64.AppImage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VideoVault-linux
+          path: VideoVault-x86_64.AppImage
+
+  # --------------------------------------------------------------- Release
+  release:
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/VideoVault-windows/VideoVault.exe
+            artifacts/VideoVault-linux/VideoVault-x86_64.AppImage
