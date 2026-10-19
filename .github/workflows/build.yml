@@ -13,9 +13,6 @@ env:
   VCSTEG3_SHA256: c9aaad401b601be7415a973978b6da2fc31f26e58bcf5d4890a3cc1912d86843
   FFMPEG_WIN: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip
   FFMPEG_LINUX: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz
-  VCSTEG3_URL_1: https://sourceforge.net/projects/veracrypt/files/Contributions/vcsteg3.py/download
-  VCSTEG3_URL_2: https://master.dl.sourceforge.net/project/veracrypt/Contributions/vcsteg3.py?viasf=1
-  VCSTEG3_URL_3: https://downloads.sourceforge.net/project/veracrypt/Contributions/vcsteg3.py
 
 jobs:
   build-windows:
@@ -41,20 +38,19 @@ jobs:
           $probe = Get-ChildItem -Path ffmpeg_dl -Recurse -Filter ffprobe.exe | Select-Object -First 1
           Copy-Item $probe.FullName ffprobe.exe
 
-      - name: Recuperer vcsteg3.py et verifier l'empreinte
+      - name: Verifier vcsteg3.py (fourni dans le depot)
         shell: pwsh
         run: |
-          $urls = @($env:VCSTEG3_URL_1, $env:VCSTEG3_URL_2, $env:VCSTEG3_URL_3)
-          $ok = $false
-          foreach ($u in $urls) {
-            try {
-              Invoke-WebRequest -Uri $u -OutFile vcsteg3.py -UseBasicParsing -UserAgent "Mozilla/5.0"
-              $hash = (Get-FileHash vcsteg3.py -Algorithm SHA256).Hash.ToLower()
-              if ($hash -eq $env:VCSTEG3_SHA256) { Write-Host "vcsteg3.py verifie via $u"; $ok = $true; break }
-              Write-Host "Mauvaise empreinte via $u : $hash"
-            } catch { Write-Host "Echec $u : $_" }
+          if (-not (Test-Path vcsteg3.py)) {
+            Write-Error "vcsteg3.py absent du depot. Ajoutez-le a la racine."
+            exit 1
           }
-          if (-not $ok) { Write-Error "vcsteg3.py introuvable ou corrompu sur tous les miroirs."; exit 1 }
+          $hash = (Get-FileHash vcsteg3.py -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:VCSTEG3_SHA256) {
+            Write-Error "Empreinte vcsteg3.py incorrecte : $hash"
+            exit 1
+          }
+          Write-Host "vcsteg3.py verifie."
 
       - name: Construire l'executable autonome
         run: >
@@ -97,17 +93,10 @@ jobs:
           cp "$(find ffmpeg_dl -name ffprobe -type f | head -1)" ffprobe
           chmod +x ffmpeg ffprobe
 
-      - name: Recuperer vcsteg3.py et verifier l'empreinte
+      - name: Verifier vcsteg3.py (fourni dans le depot)
         run: |
-          ok=0
-          for u in "$VCSTEG3_URL_1" "$VCSTEG3_URL_2" "$VCSTEG3_URL_3"; do
-            curl -fsSL -A "Mozilla/5.0" "$u" -o vcsteg3.py || { echo "Echec $u"; continue; }
-            if echo "${VCSTEG3_SHA256}  vcsteg3.py" | sha256sum -c - 2>/dev/null; then
-              echo "vcsteg3.py verifie via $u"; ok=1; break
-            fi
-            echo "Mauvaise empreinte via $u"
-          done
-          [ "$ok" = 1 ] || { echo "vcsteg3.py introuvable ou corrompu sur tous les miroirs."; exit 1; }
+          test -f vcsteg3.py || { echo "vcsteg3.py absent du depot. Ajoutez-le a la racine."; exit 1; }
+          echo "${VCSTEG3_SHA256}  vcsteg3.py" | sha256sum -c -
 
       - name: Construire le binaire autonome
         run: >
