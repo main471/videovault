@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=VideoVault
+Comment=Fusion d'une vidéo et d'un conteneur caché VeraCrypt
+Exec=python3 /opt/videovault/main.py
+Icon=video-x-generic
+Terminal=false
+Categories=Utility;Security;
